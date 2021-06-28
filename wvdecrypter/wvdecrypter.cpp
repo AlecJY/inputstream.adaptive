@@ -1165,64 +1165,78 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(AP4_UI32 pool_id,
     }
   }
 
-  if (!useSingleDecrypt)
+  while (true)
   {
-    unsigned int i(0), numCipherBytes(0);
-    for (cdm::SubsampleEntry *b(subsample_buffer_decrypt_), *e(subsample_buffer_decrypt_ + subsample_count); b != e; ++b, ++i)
+    if (!useSingleDecrypt)
     {
-      b->clear_bytes = bytes_of_cleartext_data[i];
-      b->cipher_bytes = bytes_of_encrypted_data[i];
-      numCipherBytes += b->cipher_bytes;
+      unsigned int i(0), numCipherBytes(0);
+      for (cdm::SubsampleEntry *b(subsample_buffer_decrypt_),
+           *e(subsample_buffer_decrypt_ + subsample_count);
+           b != e; ++b, ++i)
+      {
+        b->clear_bytes = bytes_of_cleartext_data[i];
+        b->cipher_bytes = bytes_of_encrypted_data[i];
+        numCipherBytes += b->cipher_bytes;
+      }
+      if (numCipherBytes)
+      {
+        cdm_in.data = data_in.GetData();
+        cdm_in.data_size = data_in.GetDataSize();
+        cdm_in.num_subsamples = subsample_count;
+      }
+      else
+      {
+        memcpy(data_out.UseData(), data_in.GetData(), data_in.GetDataSize());
+        return AP4_SUCCESS;
+      }
     }
-    if (numCipherBytes)
+
+    cdm_in.iv = iv;
+    cdm_in.iv_size = 16; //Always 16, see AP4_CencSingleSampleDecrypter declaration.
+    cdm_in.key_id = fragInfo.key_;
+    cdm_in.key_id_size = 16;
+    cdm_in.subsamples = subsample_buffer_decrypt_;
+    cdm_in.encryption_scheme = cdm::EncryptionScheme::kCenc;
+    cdm_in.timestamp = 0;
+    cdm_in.pattern = {0, 0};
+
+    CdmBuffer buf((useSingleDecrypt) ? &decrypt_out_ : &data_out);
+    CdmDecryptedBlock cdm_out;
+    cdm_out.SetDecryptedBuffer(&buf);
+
+    //LICENSERENEWAL: CheckLicenseRenewal();
+    cdm::Status ret = drm_.GetCdmAdapter()->Decrypt(cdm_in, &cdm_out);
+
+    if (ret == cdm::Status::kSuccess && useSingleDecrypt)
     {
-      cdm_in.data = data_in.GetData();
-      cdm_in.data_size = data_in.GetDataSize();
-      cdm_in.num_subsamples = subsample_count;
+      size_t absPos = 0, cipherPos = 0;
+      for (unsigned int i(0); i < subsample_count; ++i)
+      {
+        memcpy(data_out.UseData() + absPos, data_in.GetData() + absPos, bytes_of_cleartext_data[i]);
+        absPos += bytes_of_cleartext_data[i];
+        memcpy(data_out.UseData() + absPos, decrypt_out_.GetData() + cipherPos,
+               bytes_of_encrypted_data[i]);
+        absPos += bytes_of_encrypted_data[i], cipherPos += bytes_of_encrypted_data[i];
+      }
     }
-    else
+
+    if (ret != cdm::Status::kSuccess)
     {
-      memcpy(data_out.UseData(), data_in.GetData(), data_in.GetDataSize());
-      return AP4_SUCCESS;
+      if ((fragInfo.decrypter_flags_ & SSD_DECRYPTER::SSD_CAPS::SSD_SINGLE_DECRYPT) != 0 &&
+          useSingleDecrypt)
+      {
+        useSingleDecrypt = false;
+        continue;
+      }
+      char buf[36];
+      buf[32] = 0;
+      AP4_FormatHex(fragInfo.key_, 16, buf);
+      Log(SSD_HOST::LL_DEBUG, "DecryptSampleData: Decrypt failed with error: %d and key: %s", ret,
+          buf);
     }
+
+    return (ret == cdm::Status::kSuccess) ? AP4_SUCCESS : AP4_ERROR_INVALID_PARAMETERS;
   }
-
-  cdm_in.iv = iv;
-  cdm_in.iv_size = 16; //Always 16, see AP4_CencSingleSampleDecrypter declaration.
-  cdm_in.key_id = fragInfo.key_;
-  cdm_in.key_id_size = 16;
-  cdm_in.subsamples = subsample_buffer_decrypt_;
-  cdm_in.encryption_scheme = cdm::EncryptionScheme::kCenc;
-  cdm_in.timestamp = 0;
-  cdm_in.pattern = { 0,0 };
-
-  CdmBuffer buf((useSingleDecrypt) ? &decrypt_out_ : &data_out);
-  CdmDecryptedBlock cdm_out;
-  cdm_out.SetDecryptedBuffer(&buf);
-
-  //LICENSERENEWAL: CheckLicenseRenewal();
-  cdm::Status ret = drm_.GetCdmAdapter()->Decrypt(cdm_in, &cdm_out);
-
-  if (ret == cdm::Status::kSuccess && useSingleDecrypt)
-  {
-    size_t absPos = 0, cipherPos = 0;
-    for (unsigned int i(0); i < subsample_count; ++i)
-    {
-      memcpy(data_out.UseData() + absPos, data_in.GetData() + absPos, bytes_of_cleartext_data[i]);
-      absPos += bytes_of_cleartext_data[i];
-      memcpy(data_out.UseData() + absPos, decrypt_out_.GetData() + cipherPos, bytes_of_encrypted_data[i]);
-      absPos += bytes_of_encrypted_data[i], cipherPos += bytes_of_encrypted_data[i];
-    }
-  }
-
-  if (ret != cdm::Status::kSuccess)
-  {
-    char buf[36]; buf[32] = 0;
-    AP4_FormatHex(fragInfo.key_, 16, buf);
-    Log(SSD_HOST::LL_DEBUG, "DecryptSampleData: Decrypt failed with error: %d and key: %s", ret, buf);
-  }
-
-  return (ret == cdm::Status::kSuccess) ? AP4_SUCCESS : AP4_ERROR_INVALID_PARAMETERS;
 }
 
 bool WV_CencSingleSampleDecrypter::OpenVideoDecoder(const SSD_VIDEOINITDATA *initData)
