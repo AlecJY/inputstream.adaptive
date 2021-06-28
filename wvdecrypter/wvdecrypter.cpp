@@ -1167,9 +1167,13 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(AP4_UI32 pool_id,
   // from it before passing to CDM.
   if ((fragInfo.decrypter_flags_ & SSD_DECRYPTER::SSD_CAPS::SSD_SINGLE_DECRYPT) != 0)
   {
-    decrypt_in_.Reserve(data_in.GetDataSize());
+    decrypt_in_.Reserve(data_in.GetDataSize() + 20);
     decrypt_in_.SetDataSize(0);
     size_t absPos = 0;
+
+    // add some dummy bytes as a workaround to prevent decryption errors
+    AP4_Byte dummy[20] = {0};
+    decrypt_in_.AppendData(dummy, 20);
 
     for (unsigned int i(0); i < subsample_count; ++i)
     {
@@ -1180,8 +1184,8 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(AP4_UI32 pool_id,
     if (decrypt_in_.GetDataSize())
     {
       decrypt_out_.SetDataSize(decrypt_in_.GetDataSize());
-      subsample_buffer_decrypt_[0].clear_bytes = 0;
-      subsample_buffer_decrypt_[0].cipher_bytes = decrypt_in_.GetDataSize();
+      subsample_buffer_decrypt_[0].clear_bytes = 20;
+      subsample_buffer_decrypt_[0].cipher_bytes = decrypt_in_.GetDataSize() - 20;
       cdm_in.data = decrypt_in_.GetData();
       cdm_in.data_size = decrypt_in_.GetDataSize();
       cdm_in.num_subsamples = 1;
@@ -1230,7 +1234,7 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(AP4_UI32 pool_id,
 
   if (ret == cdm::Status::kSuccess && useSingleDecrypt)
   {
-    size_t absPos = 0, cipherPos = 0;
+    size_t absPos = 0, cipherPos = 20;
     for (unsigned int i(0); i < subsample_count; ++i)
     {
       memcpy(data_out.UseData() + absPos, data_in.GetData() + absPos, bytes_of_cleartext_data[i]);
