@@ -1253,8 +1253,22 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(AP4_UI32 pool_id,
   if (ret != cdm::Status::kSuccess)
   {
     char buf[36]; buf[32] = 0;
+    char *dataBuf = new char[data_in.GetDataSize() * 3 + 20];
+    memset(dataBuf, 0, sizeof(char) * (data_in.GetDataSize() * 3 + 20));
     AP4_FormatHex(fragInfo.key_, 16, buf);
+    AP4_FormatHex(data_in.GetData(), data_in.GetDataSize(), dataBuf);
     Log(SSD_HOST::LL_DEBUG, "DecryptSampleData: Decrypt failed with error: %d and key: %s", ret, buf);
+    Log(SSD_HOST::LL_DEBUG, "subsample_count: %u", subsample_count);
+    Log(SSD_HOST::LL_DEBUG, "bytes_of_cleartext_data[0]: %u", bytes_of_cleartext_data[0]);
+    Log(SSD_HOST::LL_DEBUG, "bytes_of_encrypted_data[0]: %u", bytes_of_encrypted_data[0]);
+    char pBuf[120] = {0};
+    size_t hexLex = strlen(dataBuf);
+    for (size_t i = 0; i < hexLex; i += 100)
+    {
+      strncpy_s(pBuf, dataBuf + i, 100);
+      Log(SSD_HOST::LL_DEBUG, "data_in: %s", pBuf);
+    }
+    delete[] dataBuf;
   }
 
   return (ret == cdm::Status::kSuccess) ? AP4_SUCCESS : AP4_ERROR_INVALID_PARAMETERS;
