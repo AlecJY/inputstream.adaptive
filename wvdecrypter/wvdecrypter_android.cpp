@@ -32,7 +32,7 @@ using namespace SSD;
 
 SSD_HOST *host = 0;
 
-#define LOCLICENSE 1
+//#define LOCLICENSE
 
 static void Log(SSD_HOST::LOGLEVEL loglevel, const char *format, ...)
 {
